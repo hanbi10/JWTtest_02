@@ -1,45 +1,60 @@
 package com.example.springjwt2.jwt;
 
+import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
-
-import org.springframework.beans.factory.annotation.Value; // 스프링의 @Value 어노테이션을 임포트
+import io.jsonwebtoken.SignatureAlgorithm;
+import jakarta.annotation.PostConstruct;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.apache.tomcat.util.net.openssl.ciphers.Authentication;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
+import javax.naming.AuthenticationException;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
 
 @Component
-public class JWTUtil {
+public class LoginFilter extends UsernamePasswordAuthenticationFilter {
 
-    private SecretKey secretKey;
+    private final AuthenticationManager authenticationManager;
+    //JWTUtil 주입
+    private final JWTUtil jwtUtil;
 
-    public JWTUtil(@Value("${spring.jwt.secret}") String secret) {
-        // Jwts.SIG.HS256.key().build().getAlgorithm() 대신 Jwts.SIG.HS256을 직접 사용
-        // SecretKeySpec의 생성자에 알고리즘 이름을 명시하는 것이 일반적
-        secretKey = new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), Jwts.SIG.HS256.getId()); // HS256 알고리즘 이름 명시
+    public LoginFilter(AuthenticationManager authenticationManager, JWTUtil jwtUtil) {
+        this.authenticationManager = authenticationManager;
+        this.jwtUtil = jwtUtil;
     }
 
-    public String getUsername(String token) {
-        return Jwts.parser().verifyWith(secretKey).build().parseSignedClaims(token).getPayload().get("username", String.class);
+    @Override
+    public Authentication attemptAuthentication(HttpServletRequest request, HttpServletResponse response) throws AuthenticationException {
+
+        //클라이언트 요청에서 username, password 추출
+        String username = obtainUsername(request);
+        String password = obtainPassword(request);
+
+        //스프링 시큐리티에서 username과 password를 검증하기 위해서는 token에 담아야 함
+        UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(username, password, null);
+
+        //token에 담은 검증을 위한 AuthenticationManager로 전달
+        return authenticationManager.authenticate(authToken);
     }
 
-    public String getRole(String token) {
-        return Jwts.parser().verifyWith(secretKey).build().parseSignedClaims(token).getPayload().get("role", String.class);
+    //로그인 성공시 실행하는 메소드 (여기서 JWT를 발급하면 됨)
+    @Override
+    protected void successfulAuthentication(HttpServletRequest request, HttpServletResponse response, FilterChain chain, Authentication authentication) {
+
     }
 
-    public Boolean isExpired(String token) {
-        return Jwts.parser().verifyWith(secretKey).build().parseSignedClaims(token).getPayload().getExpiration().before(new Date());
-    }
+    //로그인 실패시 실행하는 메소드
+    @Override
+    protected void unsuccessfulAuthentication(HttpServletRequest request, HttpServletResponse response, AuthenticationException failed) {
 
-    public String createJwt(String username, String role, Long expiredMs) {
-        return Jwts.builder()
-                .claim("username", username)
-                .claim("role", role)
-                .issuedAt(new Date(System.currentTimeMillis()))
-                .expiration(new Date(System.currentTimeMillis() + expiredMs))
-                .signWith(secretKey)
-                .compact();
     }
 }
